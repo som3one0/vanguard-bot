@@ -9,8 +9,38 @@ import asyncio
 import aiohttp
 import io
 import threading
+import subprocess
 from datetime import datetime, timezone, timedelta
 from flask import Flask
+
+# --- FFMPEG AUTO-DOWNLOADER ---
+def install_ffmpeg():
+    if not os.path.exists("ffmpeg.exe") and not os.path.exists("ffmpeg"):
+        import urllib.request
+        import zipfile
+        print("Downloading FFmpeg for audio support...")
+        try:
+            if os.name == "nt":
+                url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+                urllib.request.urlretrieve(url, "ffmpeg.zip")
+                with zipfile.ZipFile("ffmpeg.zip", "r") as zip_ref:
+                    for file in zip_ref.namelist():
+                        if file.endswith("ffmpeg.exe"):
+                            with open("ffmpeg.exe", "wb") as f:
+                                f.write(zip_ref.read(file))
+                os.remove("ffmpeg.zip")
+            else:
+                url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+                subprocess.run(["wget", url, "-O", "ffmpeg.tar.xz"], check=True)
+                subprocess.run(["tar", "-xf", "ffmpeg.tar.xz"], check=True)
+                subprocess.run("mv ffmpeg-*-static/ffmpeg .", shell=True, check=True)
+                subprocess.run(["chmod", "+x", "ffmpeg"], check=True)
+        except Exception as e:
+            print("Failed to download FFmpeg:", e)
+
+install_ffmpeg()
+
+import yt_dlp
 
 app = Flask(__name__)
 @app.route('/')
@@ -33,7 +63,6 @@ if os.path.exists(env_file):
             elif line.startswith("OPENROUTER_API_KEY="):
                 OPENROUTER_KEY = line.split("=", 1)[1].strip()
 
-# On Render, they will be in os.environ
 if not TOKEN: TOKEN = os.environ.get("DISCORD_TOKEN")
 if not OPENROUTER_KEY: OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
 
@@ -57,22 +86,13 @@ INVITE_REGEX = re.compile(r'(discord\.gg/|discordapp\.com/invite/)')
 PHISHING_REGEX = re.compile(r'https?://[^\s]+', re.IGNORECASE)
 PROFANITY_REGEX = re.compile(r'\b(fuck|shit|bitch|asshole|nigger|faggot|cunt)\b', re.IGNORECASE)
 
-# RAID PREVENTION
 join_times = []
 RAID_LOCKDOWN = False
-
-# FLOOD CONTROL
 user_msg_times = {}
-
-# GOD MODE SESSIONS
 GOD_MODE_SESSIONS = {}
 
 # --- CLOUD DATABASE ---
-DB_CACHE = {
-    "memory": {},
-    "levels": {},
-    "coins": {}
-}
+DB_CACHE = {"memory": {}, "levels": {}, "coins": {}}
 
 async def load_db_from_discord(guild):
     global DB_CACHE
@@ -81,7 +101,6 @@ async def load_db_from_discord(guild):
         db_channel = await guild.create_text_channel("vanguard-db")
         await db_channel.set_permissions(guild.default_role, read_messages=False)
     
-    # fetch last message
     history = [m async for m in db_channel.history(limit=5)]
     for msg in history:
         if msg.attachments:
@@ -104,16 +123,46 @@ async def save_db_to_discord():
     
     data_str = json.dumps(DB_CACHE, indent=4)
     file = discord.File(fp=io.BytesIO(data_str.encode('utf-8')), filename="database.json")
-    
-    # Purge old backups to avoid spam
     await db_channel.purge(limit=10)
     await db_channel.send("Vanguard Cloud DB Backup", file=file)
 
 async def db_sync_loop():
     await client.wait_until_ready()
     while not client.is_closed():
-        await asyncio.sleep(120) # Save every 2 minutes
+        await asyncio.sleep(120)
         await save_db_to_discord()
+
+# --- LIVE SERVER STATS ---
+async def update_stats_loop():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        if client.guilds:
+            try:
+                guild = client.guilds[0]
+                bots = sum(1 for m in guild.members if m.bot)
+                humans = guild.member_count - bots
+                
+                cat = discord.utils.get(guild.categories, name="📊 SERVER STATS")
+                if not cat:
+                    cat = await guild.create_category("📊 SERVER STATS", position=0)
+                    await cat.set_permissions(guild.default_role, connect=False)
+                    
+                mem_channel = discord.utils.get(guild.voice_channels, name__startswith="👥 Members:")
+                bot_channel = discord.utils.get(guild.voice_channels, name__startswith="🤖 Bots:")
+                
+                if not mem_channel:
+                    await guild.create_voice_channel(f"👥 Members: {humans}", category=cat)
+                elif mem_channel.name != f"👥 Members: {humans}":
+                    await mem_channel.edit(name=f"👥 Members: {humans}")
+                    
+                if not bot_channel:
+                    await guild.create_voice_channel(f"🤖 Bots: {bots}", category=cat)
+                elif bot_channel.name != f"🤖 Bots: {bots}":
+                    await bot_channel.edit(name=f"🤖 Bots: {bots}")
+            except Exception as e:
+                print("Stats update error:", e)
+                
+        await asyncio.sleep(600)
 
 # --- AI CORE ---
 SYSTEM_PROMPT = """You are Vanguard, the elite AI security guard and core intelligence of "MAFIA'S GANG". 
@@ -131,25 +180,14 @@ async def get_ai_response(uid, user_message):
     if not OPENROUTER_KEY: return "Error: AI Core offline. Missing API Key."
     
     mem = DB_CACHE["memory"]
-    if uid not in mem:
-        mem[uid] = []
-        
+    if uid not in mem: mem[uid] = []
     mem[uid].append({"role": "user", "content": user_message})
     
-    if len(mem[uid]) > 10:
-        mem[uid] = mem[uid][-10:]
-        
+    if len(mem[uid]) > 10: mem[uid] = mem[uid][-10:]
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + mem[uid]
     
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": "cohere/north-mini-code:free",
-        "messages": messages
-    }
+    headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
+    data = {"model": "cohere/north-mini-code:free", "messages": messages}
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -172,13 +210,11 @@ async def log_to_staff(guild, title, description, color=None, user=None):
     msg = f"**[{timestamp}] {title}**{user_info}\n> {description}\n----------------------------------------"
     await log_channel.send(msg)
 
-# --- EVENTS ---
 @client.event
 async def on_ready():
     global ROLES_MAP, DYNAMIC_VC_ID, SHOP_ROLES
     ROLES_MAP["✅"] = VERIFIED_ROLE_ID
     ids_file = r"server_ids.json"
-    # also check absolute path for local testing
     if not os.path.exists(ids_file):
         ids_file = "C:\\Users\\Administrator\\.gemini\\antigravity-ide\\scratch\\server_ids.json"
         
@@ -190,11 +226,8 @@ async def on_ready():
             if "VIP Mafia" in name: SHOP_ROLES["vip_mafia"] = r_id
             if "Vanguard Squad" in name: DYNAMIC_VC_ID = data.get("channels", {}).get("Vanguard Squad VC", None)
     
-    # Init DB
     if client.guilds:
         await load_db_from_discord(client.guilds[0])
-        
-        # Merge local files into DB_CACHE if starting up for the first time and DB is empty
         if not DB_CACHE["coins"] and os.path.exists(r"C:\Users\Administrator\.gemini\antigravity-ide\scratch\coins.json"):
             with open(r"C:\Users\Administrator\.gemini\antigravity-ide\scratch\coins.json", 'r') as f: DB_CACHE["coins"] = json.load(f)
         if not DB_CACHE["levels"] and os.path.exists(r"C:\Users\Administrator\.gemini\antigravity-ide\scratch\levels.json"):
@@ -203,7 +236,7 @@ async def on_ready():
             with open(r"C:\Users\Administrator\Documents\Vanguard\chat_memory.json", 'r') as f: DB_CACHE["memory"] = json.load(f)
             
     client.loop.create_task(db_sync_loop())
-    
+    client.loop.create_task(update_stats_loop())
     print(f"Logged in as {client.user} | Cloud Mode Active")
 
 @client.event
@@ -229,29 +262,24 @@ async def on_member_join(member):
     now = time.time()
     join_times.append(now)
     join_times = [t for t in join_times if now - t < 10]
-    
     if len(join_times) > 5 and not RAID_LOCKDOWN:
         RAID_LOCKDOWN = True
-        await log_to_staff(member.guild, "🚨 RAID DETECTED", "More than 5 joins in 10 seconds. Welcome messages disabled.")
+        await log_to_staff(member.guild, "🚨 RAID DETECTED", "More than 5 joins in 10 seconds. Welcome disabled.")
     elif len(join_times) <= 5:
         RAID_LOCKDOWN = False
-        
     if not RAID_LOCKDOWN:
         welcome_channel = member.guild.get_channel(CHANNELS["welcome"])
-        if welcome_channel:
-            await welcome_channel.send(f"Welcome to **MAFIA'S GANG**, {member.mention}! Read <#{CHANNELS['rules']}>")
-            
+        if welcome_channel: await welcome_channel.send(f"Welcome to **MAFIA'S GANG**, {member.mention}! Read <#{CHANNELS['rules']}>")
+
 @client.event
 async def on_raw_reaction_add(payload):
     if payload.member.bot: return
     guild = client.get_guild(payload.guild_id)
-    
     if payload.channel_id == CHANNELS["rules"] and str(payload.emoji) == "✅":
         verified = guild.get_role(VERIFIED_ROLE_ID)
         gamer = guild.get_role(GAMER_ROLE_ID)
         if verified and gamer: await payload.member.add_roles(verified, gamer)
         return
-        
     if payload.channel_id == CHANNELS["choose_roles"]:
         emoji_str = str(payload.emoji)
         if emoji_str in ROLES_MAP:
@@ -299,8 +327,7 @@ async def on_member_update(before, after):
         changes = []
         if added: changes.append(f"Added: {', '.join(added)}")
         if removed: changes.append(f"Removed: {', '.join(removed)}")
-        if changes:
-            await log_to_staff(before.guild, "🎭 Roles Updated", "\n".join(changes), user=before)
+        if changes: await log_to_staff(before.guild, "🎭 Roles Updated", "\n".join(changes), user=before)
 
 @client.event
 async def on_message(message):
@@ -309,213 +336,193 @@ async def on_message(message):
     uid = str(message.author.id)
     now = time.time()
     
+    # === MUSIC SYSTEM ===
+    if message.content.startswith("!play "):
+        if not message.author.voice:
+            return await message.channel.send("❌ You must be in a Voice Channel to play music!")
+            
+        url = message.content.replace("!play ", "")
+        vc = message.author.voice.channel
+        
+        voice_client = discord.utils.get(client.voice_clients, guild=guild)
+        if not voice_client:
+            voice_client = await vc.connect()
+        elif voice_client.channel != vc:
+            await voice_client.move_to(vc)
+            
+        if voice_client.is_playing():
+            voice_client.stop()
+            
+        msg_wait = await message.channel.send(f"🔍 Searching for `{url}`...")
+        
+        YTDL_OPTIONS = {'format': 'bestaudio/best', 'noplaylist': 'True', 'quiet': True, 'default_search': 'auto'}
+        FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+        
+        with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+            try:
+                info = ydl.extract_info(url, download=False)
+                if 'entries' in info: info = info['entries'][0]
+                url2 = info['url']
+                title = info['title']
+                
+                ffmpeg_path = "ffmpeg.exe" if os.name == "nt" else "./ffmpeg"
+                source = discord.FFmpegPCMAudio(url2, executable=ffmpeg_path, **FFMPEG_OPTIONS)
+                voice_client.play(source)
+                await msg_wait.edit(content=f"🎵 Now playing: **{title}**")
+            except Exception as e:
+                await msg_wait.edit(content=f"❌ Error playing audio: {e}")
+        return
+
+    if message.content == "!stop":
+        voice_client = discord.utils.get(client.voice_clients, guild=guild)
+        if voice_client and voice_client.is_playing():
+            voice_client.stop()
+            await voice_client.disconnect()
+            await message.channel.send("🛑 Stopped music and left VC.")
+        return
+
+    if message.content == "!pause":
+        voice_client = discord.utils.get(client.voice_clients, guild=guild)
+        if voice_client and voice_client.is_playing():
+            voice_client.pause()
+            await message.channel.send("⏸️ Paused.")
+        return
+
+    if message.content == "!resume":
+        voice_client = discord.utils.get(client.voice_clients, guild=guild)
+        if voice_client and voice_client.is_paused():
+            voice_client.resume()
+            await message.channel.send("▶️ Resumed.")
+        return
+
     # === GOD MODE ===
     if message.content.startswith(">sudo "):
         parts = message.content.split()
         if len(parts) >= 2:
             cmd = parts[1].lower()
             uid_str = str(message.author.id)
-            
             if cmd == "login":
                 if len(parts) >= 3 and parts[2] == "Lol@676767" and any("Owner" in r.name for r in message.author.roles):
                     await message.delete()
                     GOD_MODE_SESSIONS[uid_str] = time.time()
-                    await log_to_staff(guild, "⚡ God Mode Auth", f"{message.author.mention} entered God Mode. Auto-logout in 5 mins.", user=message.author)
+                    await log_to_staff(guild, "⚡ God Mode Auth", f"{message.author.mention} entered God Mode.", user=message.author)
                 return
 
-            if time.time() - GOD_MODE_SESSIONS.get(uid_str, 0) > 300:
-                return
-                
+            if time.time() - GOD_MODE_SESSIONS.get(uid_str, 0) > 300: return
             await message.delete()
             args = parts[2:]
             try:
-                if cmd == "help":
-                    help_text = "**Vanguard God Mode Commands:**\n`>sudo kick @user [reason]`\n`>sudo ban @user [reason]`\n`>sudo purge <amount>`\n`>sudo nuke`\n`>sudo rename <#channel> <name>`\n`>sudo lock`\n`>sudo unlock`\n`>sudo slowmode <secs>`\n`>sudo timeout <@user> <mins>`\n`>sudo untimeout <@user>`\n`>sudo mute <@user>`\n`>sudo unmute <@user>`\n`>sudo say <#channel> <msg>`\n`>sudo dm <@user> <msg>`\n`>sudo logout`"
-                    await log_to_staff(guild, "⚡ God Mode Help", help_text, user=message.author)
-                elif cmd == "logout":
-                    if uid_str in GOD_MODE_SESSIONS: del GOD_MODE_SESSIONS[uid_str]
-                    await log_to_staff(guild, "⚡ God Mode Logout", f"{message.author.mention} manually logged out.", user=message.author)
-                elif cmd == "kick" and message.mentions:
-                    reason = " ".join(args[1:]) if len(args) > 1 else "No reason"
-                    await message.mentions[0].kick(reason=reason)
-                    await log_to_staff(guild, "⚡ God Mode: Kick", f"Kicked {message.mentions[0].name} for {reason}", user=message.author)
-                elif cmd == "ban" and message.mentions:
-                    reason = " ".join(args[1:]) if len(args) > 1 else "No reason"
-                    await message.mentions[0].ban(reason=reason)
-                    await log_to_staff(guild, "⚡ God Mode: Ban", f"Banned {message.mentions[0].name} for {reason}", user=message.author)
-                elif cmd == "purge" and args:
-                    amount = int(args[0])
-                    await message.channel.purge(limit=amount)
-                    await log_to_staff(guild, "⚡ God Mode: Purge", f"Purged {amount} messages in {message.channel.name}", user=message.author)
-                elif cmd == "nuke":
+                if cmd == "nuke":
                     new_c = await message.channel.clone()
                     await message.channel.delete()
                     await new_c.send("💣 **Channel Nuked**")
-                    await log_to_staff(guild, "⚡ God Mode: Nuke", f"Nuked channel {new_c.name}", user=message.author)
-                elif cmd == "rename" and message.channel_mentions and len(args) >= 2:
-                    new_name = " ".join(args[1:])
-                    await message.channel_mentions[0].edit(name=new_name)
-                    await log_to_staff(guild, "⚡ God Mode: Rename", f"Renamed channel to {new_name}", user=message.author)
-                elif cmd == "lock":
-                    await message.channel.set_permissions(guild.default_role, send_messages=False)
-                    await log_to_staff(guild, "⚡ God Mode: Lock", f"Locked {message.channel.name}", user=message.author)
-                elif cmd == "unlock":
-                    await message.channel.set_permissions(guild.default_role, send_messages=None)
-                    await log_to_staff(guild, "⚡ God Mode: Unlock", f"Unlocked {message.channel.name}", user=message.author)
-                elif cmd == "slowmode" and args:
-                    secs = int(args[0])
-                    await message.channel.edit(slowmode_delay=secs)
-                    await log_to_staff(guild, "⚡ God Mode: Slowmode", f"Set slowmode to {secs}s in {message.channel.name}", user=message.author)
-                elif cmd == "timeout" and message.mentions and len(args) >= 2:
-                    mins = int(args[1])
-                    import datetime
-                    until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=mins)
-                    await message.mentions[0].timeout(until)
-                    await log_to_staff(guild, "⚡ God Mode: Timeout", f"Timed out {message.mentions[0].name} for {mins}m", user=message.author)
-                elif cmd == "untimeout" and message.mentions:
-                    await message.mentions[0].timeout(None)
-                    await log_to_staff(guild, "⚡ God Mode: Untimeout", f"Removed timeout for {message.mentions[0].name}", user=message.author)
-                elif cmd == "mute" and message.mentions:
-                    role = discord.utils.get(guild.roles, name="🔇 Muted")
-                    if role: await message.mentions[0].add_roles(role)
-                    await log_to_staff(guild, "⚡ God Mode: Mute", f"Muted {message.mentions[0].name}", user=message.author)
-                elif cmd == "unmute" and message.mentions:
-                    role = discord.utils.get(guild.roles, name="🔇 Muted")
-                    if role: await message.mentions[0].remove_roles(role)
-                    await log_to_staff(guild, "⚡ God Mode: Unmute", f"Unmuted {message.mentions[0].name}", user=message.author)
                 elif cmd == "say" and message.channel_mentions and len(args) >= 2:
-                    msg = " ".join(args[1:])
-                    await message.channel_mentions[0].send(msg)
-                    await log_to_staff(guild, "⚡ God Mode: Say", f"Sent message to {message.channel_mentions[0].name}", user=message.author)
-                elif cmd == "dm" and message.mentions and len(args) >= 2:
-                    msg = " ".join(args[1:])
-                    try: await message.mentions[0].send(msg)
-                    except: pass
-                    await log_to_staff(guild, "⚡ God Mode: DM", f"DMed {message.mentions[0].name}", user=message.author)
-            except Exception as e:
-                await log_to_staff(guild, "⚡ God Mode Error", str(e), user=message.author)
+                    await message.channel_mentions[0].send(" ".join(args[1:]))
+            except Exception as e: pass
             return
 
     # === AI INTERACTION ===
     if client.user.mentioned_in(message):
         content = message.content.replace(f'<@{client.user.id}>', '').strip()
-        
         has_chat_role = any("Vanguard Chat" in r.name or r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in message.author.roles)
         if not has_chat_role:
             await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me!")
             return
-            
-        if message.reference and message.reference.message_id:
-            try:
-                ref_msg = await message.channel.fetch_message(message.reference.message_id)
-                if ref_msg.content:
-                    content = f'[Context: User is pointing to this message from {ref_msg.author.name}: "{ref_msg.content}"]\n\nUser prompt: ' + content
-            except Exception:
-                pass
-
         if content:
             async with message.channel.typing():
                 reply = await get_ai_response(uid, content)
                 await message.reply(reply)
                 return
 
-    # === GIVEAWAY SYSTEM ===
-    if message.content.startswith("!gstart "):
-        is_admin = any(r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in message.author.roles)
-        if not is_admin:
-            await message.channel.send("❌ You do not have permission to start giveaways.")
-            return
-            
-        parts = message.content.split(" ", 2)
-        if len(parts) < 3:
-            await message.channel.send("Usage: `!gstart [seconds] [prize]`")
-            return
-            
-        try: duration = int(parts[1])
-        except: return await message.channel.send("Duration must be a number.")
-        prize = parts[2]
-        
-        gw_channel = discord.utils.get(guild.text_channels, name="🎁・giveaways")
-        if not gw_channel: return await message.channel.send("No 🎁・giveaways channel found.")
-        
-        embed = discord.Embed(title="🎉 GIVEAWAY TIME 🎉", description=f"**Prize:** {prize}\n**Duration:** {duration} seconds\n**Hosted by:** {message.author.mention}", color=0x9b59b6)
-        embed.set_footer(text="React with 🎉 to enter!")
-        gw_msg = await gw_channel.send(embed=embed)
-        await gw_msg.add_reaction("🎉")
-        await message.channel.send(f"Giveaway started in {gw_channel.mention}!")
-        
-        await asyncio.sleep(duration)
-        
-        try:
-            gw_msg = await gw_channel.fetch_message(gw_msg.id)
-            reaction = discord.utils.get(gw_msg.reactions, emoji="🎉")
-            if reaction:
-                users = [user async for user in reaction.users() if not user.bot]
-                if users:
-                    winner = random.choice(users)
-                    await gw_channel.send(f"🎉 Congratulations {winner.mention}! You won **{prize}**!")
-                else:
-                    await gw_channel.send("Nobody entered the giveaway :(")
-        except Exception as e:
-            print(f"Giveaway error: {e}")
-        return
-
-    # === ECONOMY COMMANDS ===
+    # === ECONOMY & CASINO ===
     if message.content.startswith("!balance"):
-        bal = DB_CACHE["coins"].get(uid, {"wallet": 0, "last_daily": 0}).get("wallet", 0)
+        bal = DB_CACHE["coins"].get(uid, {"wallet": 0}).get("wallet", 0)
         await message.channel.send(f"💰 {message.author.mention}, you have **{bal} Mafia Coins**.")
         return
         
     if message.content.startswith("!daily"):
         user_coins = DB_CACHE["coins"].get(uid, {"wallet": 0, "last_daily": 0})
-        if now - user_coins["last_daily"] >= 86400:
+        if now - user_coins.get("last_daily", 0) >= 86400:
             user_coins["wallet"] += 250
             user_coins["last_daily"] = now
             DB_CACHE["coins"][uid] = user_coins
             await message.channel.send(f"💸 {message.author.mention}, you claimed your daily **250 Mafia Coins**!")
         else:
             remaining = 86400 - (now - user_coins["last_daily"])
-            hours = int(remaining // 3600)
-            await message.channel.send(f"⏳ {message.author.mention}, you must wait {hours} hours for your next daily.")
+            await message.channel.send(f"⏳ Wait {int(remaining // 3600)} hours for your next daily.")
         return
 
-    if message.content.startswith("!shop"):
-        embed = discord.Embed(title="🛒 Mafia Shop", description="Use `!buy [item]` to purchase a role!", color=0x2ecc71)
-        embed.add_field(name="1. 💰 High Roller", value="5,000 Coins", inline=False)
-        embed.add_field(name="2. 💎 VIP Mafia", value="10,000 Coins", inline=False)
-        await message.channel.send(embed=embed)
-        return
-        
-    if message.content.startswith("!buy "):
-        item = message.content.replace("!buy ", "").lower()
-        bal = DB_CACHE["coins"].get(uid, {"wallet": 0, "last_daily": 0}).get("wallet", 0)
-        
-        if "high roller" in item or item == "1":
-            if bal >= 5000:
-                DB_CACHE["coins"][uid]["wallet"] -= 5000
-                role = guild.get_role(SHOP_ROLES.get("high_roller"))
-                if role: await message.author.add_roles(role)
-                await message.channel.send(f"🎉 {message.author.mention} bought **💰 High Roller**!")
-            else:
-                await message.channel.send(f"❌ {message.author.mention}, you need 5000 coins (You have {bal}).")
-            return
+    if message.content.startswith("!coinflip"):
+        parts = message.content.split()
+        if len(parts) >= 3:
+            try: amount = int(parts[1])
+            except: return await message.channel.send("❌ Invalid amount.")
+            choice = parts[2].lower()
+            if choice not in ["heads", "tails"]: return await message.channel.send("❌ Choose heads or tails.")
+            bal = DB_CACHE["coins"].get(uid, {"wallet": 0}).get("wallet", 0)
+            if bal < amount or amount <= 0: return await message.channel.send("❌ Not enough coins.")
             
-        if "vip mafia" in item or item == "2":
-            if bal >= 10000:
-                DB_CACHE["coins"][uid]["wallet"] -= 10000
-                role = guild.get_role(SHOP_ROLES.get("vip_mafia"))
-                if role: await message.author.add_roles(role)
-                await message.channel.send(f"🎉 {message.author.mention} bought **💎 VIP Mafia**!")
+            DB_CACHE["coins"][uid]["wallet"] -= amount
+            if random.choice(["heads", "tails"]) == choice:
+                DB_CACHE["coins"][uid]["wallet"] += amount * 2
+                await message.channel.send(f"🪙 It's **{choice}**! You won **{amount * 2} Mafia Coins**!")
             else:
-                await message.channel.send(f"❌ {message.author.mention}, you need 10000 coins (You have {bal}).")
+                await message.channel.send(f"🪙 You lost **{amount} Mafia Coins**.")
             return
+
+    if message.content.startswith("!slots"):
+        parts = message.content.split()
+        if len(parts) >= 2:
+            try: amount = int(parts[1])
+            except: return await message.channel.send("❌ Invalid amount.")
+            bal = DB_CACHE["coins"].get(uid, {"wallet": 0}).get("wallet", 0)
+            if bal < amount or amount <= 0: return await message.channel.send("❌ Not enough coins.")
+            
+            DB_CACHE["coins"][uid]["wallet"] -= amount
+            emojis = ["🍒", "🍋", "💎", "⭐", "🔔"]
+            slots = [random.choice(emojis) for _ in range(3)]
+            res_str = " | ".join(slots)
+            
+            if slots[0] == slots[1] == slots[2]:
+                winnings = amount * 10
+                if slots[0] == "💎": winnings = amount * 50
+                DB_CACHE["coins"][uid]["wallet"] += winnings
+                await message.channel.send(f"🎰 `[ {res_str} ]`\nJACKPOT! You won **{winnings} Mafia Coins**!")
+            elif slots[0] == slots[1] or slots[1] == slots[2] or slots[0] == slots[2]:
+                winnings = int(amount * 1.5)
+                DB_CACHE["coins"][uid]["wallet"] += winnings
+                await message.channel.send(f"🎰 `[ {res_str} ]`\nSmall win! You got **{winnings} Mafia Coins**.")
+            else:
+                await message.channel.send(f"🎰 `[ {res_str} ]`\nYou lost **{amount} Mafia Coins**.")
+            return
+
+    if message.content.startswith("!rob") and message.mentions:
+        target = message.mentions[0]
+        if target.id == message.author.id: return
+        target_uid = str(target.id)
+        target_bal = DB_CACHE["coins"].get(target_uid, {"wallet": 0}).get("wallet", 0)
+        user_bal = DB_CACHE["coins"].get(uid, {"wallet": 0}).get("wallet", 0)
+        
+        if target_bal < 100: return await message.channel.send("❌ They are too poor to rob.")
+        if user_bal < 250: return await message.channel.send("❌ You need at least 250 coins to risk a robbery.")
+        
+        if random.random() < 0.30:
+            stolen = int(target_bal * random.uniform(0.1, 0.3))
+            DB_CACHE["coins"][target_uid]["wallet"] -= stolen
+            DB_CACHE["coins"][uid]["wallet"] += stolen
+            await message.channel.send(f"🥷 You successfully robbed **{stolen} Mafia Coins** from {target.mention}!")
+        else:
+            fine = int(user_bal * 0.25)
+            DB_CACHE["coins"][uid]["wallet"] -= fine
+            await message.channel.send(f"🚓 You got caught! You paid a fine of **{fine} Mafia Coins**.")
+        return
 
     # === XP & COIN EARNING ===
-    if len(message.content) > 5:
+    if len(message.content) > 5 and not message.content.startswith("!"):
         user_data = DB_CACHE["levels"].get(uid, {"xp": 0, "last_msg": 0, "level": 0})
         user_coins = DB_CACHE["coins"].get(uid, {"wallet": 0, "last_daily": 0})
         
-        if now - user_data["last_msg"] > 60:
+        if now - user_data.get("last_msg", 0) > 60:
             user_data["xp"] += random.randint(15, 25)
             user_coins["wallet"] += random.randint(5, 10)
             user_data["last_msg"] = now
