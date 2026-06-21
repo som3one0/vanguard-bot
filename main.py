@@ -147,8 +147,8 @@ async def update_stats_loop():
                     cat = await guild.create_category("📊 SERVER STATS", position=0)
                     await cat.set_permissions(guild.default_role, connect=False)
                     
-                mem_channel = discord.utils.get(guild.voice_channels, name__startswith="👥 Members:")
-                bot_channel = discord.utils.get(guild.voice_channels, name__startswith="🤖 Bots:")
+                mem_channel = next((c for c in guild.voice_channels if c.name.startswith("👥 Members:")), None)
+                bot_channel = next((c for c in guild.voice_channels if c.name.startswith("🤖 Bots:")), None)
                 
                 if not mem_channel:
                     await guild.create_voice_channel(f"👥 Members: {humans}", category=cat)
