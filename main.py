@@ -194,24 +194,35 @@ async def get_ai_response(uid, user_message):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + cleaned_mem
     
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
-    data = {"model": "meta-llama/llama-3.3-70b-instruct:free", "messages": messages}
+    models_to_try = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "google/gemini-2.0-pro-exp-02-05:free",
+        "meta-llama/llama-3.2-3b-instruct:free"
+    ]
     
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data) as resp:
-                if resp.status == 200:
-                    json_data = await resp.json()
-                    reply = json_data['choices'][0]['message']['content']
-                    mem[uid].append({"role": "assistant", "content": reply})
-                    return reply
-                else:
-                    err_txt = await resp.text()
-                    print(f"OpenRouter Error {resp.status}: {err_txt}")
-                    if resp.status == 400:
-                        DB_CACHE["memory"][uid] = [] # Auto-fix corrupted history loops
-                    return f"Error: AI systems disrupted. (Code: {resp.status})"
-    except Exception as e:
-        return f"Error connecting to AI Core: {e}"
+    for model in models_to_try:
+        data = {"model": model, "messages": messages}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data) as resp:
+                    if resp.status == 200:
+                        json_data = await resp.json()
+                        reply = json_data['choices'][0]['message']['content']
+                        mem[uid].append({"role": "assistant", "content": reply})
+                        return reply
+                    else:
+                        err_txt = await resp.text()
+                        print(f"OpenRouter Error {resp.status} on {model}: {err_txt}")
+                        if resp.status == 400:
+                            DB_CACHE["memory"][uid] = [] # Auto-fix corrupted history loops
+                        # Try the next model
+                        continue
+        except Exception as e:
+            print(f"Connection error on {model}: {e}")
+            continue
+            
+    return "❌ Error: All free AI models are currently overwhelmed (Rate Limited). Please try again in a minute!"
 
 async def log_to_staff(guild, title, description, color=None, user=None):
     log_channel = guild.get_channel(CHANNELS["logs"])
