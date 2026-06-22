@@ -215,7 +215,8 @@ async def get_ai_response(uid, user_message, is_dm=False):
     for model in models_to_try:
         data = {"model": model, "messages": messages}
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data) as resp:
                     if resp.status == 200:
                         json_data = await resp.json()
