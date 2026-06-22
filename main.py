@@ -442,6 +442,14 @@ async def on_message(message):
                     new_c = await message.channel.clone()
                     await message.channel.delete()
                     await new_c.send("💣 **Channel Nuked**")
+                elif cmd == "wipe_server":
+                    for c in guild.text_channels:
+                        try:
+                            new_c = await c.clone()
+                            await c.delete()
+                            await new_c.send("💣 **Channel Nuked (Server Wipe)**")
+                        except Exception as e:
+                            pass
                 elif cmd == "say" and message.channel_mentions and len(args) >= 2:
                     await message.channel_mentions[0].send(" ".join(args[1:]))
             except Exception as e: pass
