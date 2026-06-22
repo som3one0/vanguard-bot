@@ -454,10 +454,18 @@ async def on_message(message):
         
         if is_dm:
             vanguard_guild = client.get_guild(1517486961592504320)
-            member = vanguard_guild.get_member(message.author.id) if vanguard_guild else None
-            is_owner = member and any("Owner" in r.name for r in member.roles)
+            cveix_id = None
+            if vanguard_guild:
+                cveix_member = discord.utils.get(vanguard_guild.members, name="cveix")
+                if cveix_member: cveix_id = str(cveix_member.id)
             
-            if content.startswith(">Vanguard access ") and is_owner:
+            # Fallback if member cache is empty
+            if not cveix_id and message.author.name == "cveix":
+                cveix_id = str(message.author.id)
+                
+            is_cveix = (str(message.author.id) == cveix_id)
+            
+            if content.startswith(">Vanguard access ") and is_cveix:
                 target_id = content.replace(">Vanguard access ", "").strip()
                 if "dm_whitelist" not in DB_CACHE: DB_CACHE["dm_whitelist"] = []
                 if target_id not in DB_CACHE["dm_whitelist"]:
@@ -465,9 +473,9 @@ async def on_message(message):
                 await message.reply(f"✅ Granted DM access to user ID: `{target_id}`")
                 return
                 
-            has_chat_role = is_owner or (str(message.author.id) in DB_CACHE.get("dm_whitelist", []))
+            has_chat_role = is_cveix or (str(message.author.id) in DB_CACHE.get("dm_whitelist", []))
             if not has_chat_role:
-                await message.reply("❌ You do not have permission to DM me. Ask Pratik for access.")
+                await message.reply("❌ You do not have permission to DM me. Ask cveix for access.")
                 return
         else:
             has_chat_role = any("Vanguard Chat" in r.name or r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in getattr(message.author, "roles", []))
@@ -480,8 +488,12 @@ async def on_message(message):
             if "generate image" in lower_content or "create image" in lower_content or "imagine" in lower_content:
                 import urllib.parse
                 prompt = content.replace("generate image", "").replace("create image", "").replace("imagine", "").strip()
+                if prompt.lower().startswith("of "):
+                    prompt = prompt[3:].strip()
                 if not prompt: prompt = "a cool cyberpunk mafia boss"
-                safe_prompt = urllib.parse.quote(prompt)
+                
+                enhanced_prompt = f"{prompt}, highly detailed, masterpiece, cinematic lighting, 8k resolution, best quality, completely accurate to prompt"
+                safe_prompt = urllib.parse.quote(enhanced_prompt)
                 image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
                 embed = discord.Embed(title="🎨 Image Generated", description=f"**Prompt:** {prompt}", color=discord.Color.purple())
                 embed.set_image(url=image_url)
