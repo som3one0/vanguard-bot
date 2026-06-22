@@ -194,7 +194,7 @@ async def get_ai_response(uid, user_message):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + cleaned_mem
     
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
-    data = {"model": "mistralai/mistral-7b-instruct:free", "messages": messages}
+    data = {"model": "meta-llama/llama-3.3-70b-instruct:free", "messages": messages}
     
     try:
         async with aiohttp.ClientSession() as session:
