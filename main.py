@@ -198,6 +198,10 @@ async def get_ai_response(uid, user_message):
         "meta-llama/llama-3.3-70b-instruct:free",
         "nousresearch/hermes-3-llama-3.1-405b:free",
         "google/gemini-2.0-pro-exp-02-05:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "google/gemma-4-31b-it:free",
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "qwen/qwen3-coder:free",
         "meta-llama/llama-3.2-3b-instruct:free"
     ]
     
