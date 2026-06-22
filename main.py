@@ -460,25 +460,65 @@ async def on_message(message):
         content = message.content.replace(f'<@{client.user.id}>', '').strip()
         
         if is_dm:
-            vanguard_guild = client.get_guild(1517486961592504320)
-            cveix_id = None
-            if vanguard_guild:
-                cveix_member = discord.utils.get(vanguard_guild.members, name="cveix")
-                if cveix_member: cveix_id = str(cveix_member.id)
+            is_cveix = (str(message.author.id) == "1388539453928243230")
             
-            # Fallback if member cache is empty
-            if not cveix_id and message.author.name == "cveix":
-                cveix_id = str(message.author.id)
+            # --- DM Admin Panel Commands ---
+            if content.startswith(">Vanguard ") and is_cveix:
+                cmd_parts = content.split(" ", 2)
+                subcmd = cmd_parts[1].lower() if len(cmd_parts) > 1 else ""
+                args = cmd_parts[2].strip() if len(cmd_parts) > 2 else ""
                 
-            is_cveix = (str(message.author.id) == cveix_id)
-            
-            if content.startswith(">Vanguard access ") and is_cveix:
-                target_id = content.replace(">Vanguard access ", "").strip()
                 if "dm_whitelist" not in DB_CACHE: DB_CACHE["dm_whitelist"] = []
-                if target_id not in DB_CACHE["dm_whitelist"]:
-                    DB_CACHE["dm_whitelist"].append(target_id)
-                await message.reply(f"✅ Granted DM access to user ID: `{target_id}`")
-                return
+                
+                if subcmd == "access" and args:
+                    if args not in DB_CACHE["dm_whitelist"]:
+                        DB_CACHE["dm_whitelist"].append(args)
+                    await message.reply(f"✅ Granted DM access to user ID: `{args}`")
+                    return
+                elif subcmd == "revoke" and args:
+                    if args in DB_CACHE["dm_whitelist"]:
+                        DB_CACHE["dm_whitelist"].remove(args)
+                    await message.reply(f"❌ Revoked DM access for user ID: `{args}`")
+                    return
+                elif subcmd == "list_access":
+                    users = "\\n".join([f"- `{uid}`" for uid in DB_CACHE["dm_whitelist"]])
+                    if not users: users = "No one has access except you."
+                    await message.reply(f"📋 **DM Whitelist:**\\n{users}")
+                    return
+                elif subcmd == "clear_mem" and args:
+                    if args in DB_CACHE["memory"]:
+                        DB_CACHE["memory"][args] = []
+                        await message.reply(f"🧠 Wiped AI short-term memory for user ID: `{args}`")
+                    else:
+                        await message.reply(f"⚠️ No memory found for user ID: `{args}`")
+                    return
+                elif subcmd == "broadcast" and args:
+                    vanguard_guild = client.get_guild(1517486961592504320)
+                    if vanguard_guild:
+                        announce_channel = vanguard_guild.get_channel(CHANNELS.get("announcements", 1518177466177294356)) # Fallback ID from server_ids.json
+                        if announce_channel:
+                            await announce_channel.send(args)
+                            await message.reply("📡 Broadcast sent successfully to announcements!")
+                        else:
+                            await message.reply("❌ Error: Announcements channel not found.")
+                    return
+                elif subcmd == "status":
+                    ping = round(client.latency * 1000)
+                    active_vcs = len(client.voice_clients)
+                    mem_users = len(DB_CACHE["memory"])
+                    await message.reply(f"🟢 **System Status**\\n- Latency: `{ping}ms`\\n- Active VCs: `{active_vcs}`\\n- Active AI Chats: `{mem_users}`")
+                    return
+                elif subcmd == "help":
+                    embed = discord.Embed(title="🛡️ Vanguard DM Admin Panel", description="Commands only accessible to cveix.", color=discord.Color.red())
+                    embed.add_field(name=">Vanguard access <id>", value="Grant a user DM access.", inline=False)
+                    embed.add_field(name=">Vanguard revoke <id>", value="Revoke a user's DM access.", inline=False)
+                    embed.add_field(name=">Vanguard list_access", value="Show all whitelisted users.", inline=False)
+                    embed.add_field(name=">Vanguard clear_mem <id>", value="Wipe a user's AI chat memory.", inline=False)
+                    embed.add_field(name=">Vanguard broadcast <msg>", value="Send an announcement to the server.", inline=False)
+                    embed.add_field(name=">Vanguard status", value="View bot health metrics.", inline=False)
+                    await message.reply(embed=embed)
+                    return
+            # --- End DM Admin Panel Commands ---
                 
             has_chat_role = is_cveix or (str(message.author.id) in DB_CACHE.get("dm_whitelist", []))
             if not has_chat_role:
