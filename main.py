@@ -532,16 +532,30 @@ async def on_message(message):
                 
         if content:
             lower_content = content.lower()
-            if "generate image" in lower_content or "create image" in lower_content or "imagine" in lower_content:
+            is_image_req = ("generate" in lower_content or "create" in lower_content or "draw" in lower_content) and ("image" in lower_content or "picture" in lower_content or "photo" in lower_content or "art" in lower_content)
+            if is_image_req or "imagine" in lower_content:
                 import urllib.parse
-                prompt = content.replace("generate image", "").replace("create image", "").replace("imagine", "").strip()
+                prompt = content
+                
+                # Clean up the prompt
+                prefixes = ["generate image of", "generate image", "create image of", "create image", "generate a", "create a", "draw a", "imagine", "generate", "create", "draw"]
+                lower_p = prompt.lower()
+                for p in prefixes:
+                    if lower_p.startswith(p):
+                        prompt = prompt[len(p):].strip()
+                        lower_p = prompt.lower()
                 if prompt.lower().startswith("of "):
                     prompt = prompt[3:].strip()
+                    
                 if not prompt: prompt = "a cool cyberpunk mafia boss"
                 
                 enhanced_prompt = f"{prompt}, highly detailed, masterpiece, cinematic lighting, 8k resolution, best quality, completely accurate to prompt"
                 safe_prompt = urllib.parse.quote(enhanced_prompt)
-                image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+                
+                # Unlock NSFW filter in DMs only
+                filter_param = "&nofilter=true" if is_dm else ""
+                image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true{filter_param}"
+                
                 embed = discord.Embed(title="🎨 Image Generated", description=f"**Prompt:** {prompt}", color=discord.Color.purple())
                 embed.set_image(url=image_url)
                 embed.set_footer(text=f"Requested by {message.author.display_name}")
