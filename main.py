@@ -183,7 +183,15 @@ async def get_ai_response(uid, user_message):
     mem[uid].append({"role": "user", "content": user_message})
     
     if len(mem[uid]) > 10: mem[uid] = mem[uid][-10:]
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + mem[uid]
+    
+    cleaned_mem = []
+    for msg in mem[uid]:
+        if not cleaned_mem or cleaned_mem[-1]["role"] != msg["role"]:
+            cleaned_mem.append(msg)
+        else:
+            cleaned_mem[-1] = msg
+            
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + cleaned_mem
     
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
     data = {"model": "google/gemini-2.0-pro-exp-02-05:free", "messages": messages}
@@ -197,6 +205,8 @@ async def get_ai_response(uid, user_message):
                     mem[uid].append({"role": "assistant", "content": reply})
                     return reply
                 else:
+                    err_txt = await resp.text()
+                    print(f"OpenRouter Error {resp.status}: {err_txt}")
                     return f"Error: AI systems disrupted. (Code: {resp.status})"
     except Exception as e:
         return f"Error connecting to AI Core: {e}"
