@@ -194,7 +194,7 @@ async def get_ai_response(uid, user_message):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + cleaned_mem
     
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
-    data = {"model": "google/gemini-2.0-pro-exp-02-05:free", "messages": messages}
+    data = {"model": "mistralai/mistral-7b-instruct:free", "messages": messages}
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -207,6 +207,8 @@ async def get_ai_response(uid, user_message):
                 else:
                     err_txt = await resp.text()
                     print(f"OpenRouter Error {resp.status}: {err_txt}")
+                    if resp.status == 400:
+                        DB_CACHE["memory"][uid] = [] # Auto-fix corrupted history loops
                     return f"Error: AI systems disrupted. (Code: {resp.status})"
     except Exception as e:
         return f"Error connecting to AI Core: {e}"
