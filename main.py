@@ -428,6 +428,19 @@ async def on_message(message):
             await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me!")
             return
         if content:
+            lower_content = content.lower()
+            if "generate image" in lower_content or "create image" in lower_content or "imagine" in lower_content:
+                import urllib.parse
+                prompt = content.replace("generate image", "").replace("create image", "").replace("imagine", "").strip()
+                if not prompt: prompt = "a cool cyberpunk mafia boss"
+                safe_prompt = urllib.parse.quote(prompt)
+                image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+                embed = discord.Embed(title="🎨 Image Generated", description=f"**Prompt:** {prompt}", color=discord.Color.purple())
+                embed.set_image(url=image_url)
+                embed.set_footer(text=f"Requested by {message.author.display_name}")
+                await message.reply(embed=embed)
+                return
+                
             async with message.channel.typing():
                 reply = await get_ai_response(uid, content)
                 await message.reply(reply)
