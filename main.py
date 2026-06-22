@@ -208,7 +208,7 @@ async def log_to_staff(guild, title, description, color=None, user=None):
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     user_info = f" | User: {user.name} ({user.id})" if user else ""
     msg = f"**[{timestamp}] {title}**{user_info}\n> {description}\n----------------------------------------"
-    await log_channel.send(msg)
+    await log_channel.send(msg, allowed_mentions=discord.AllowedMentions.none())
 
 @client.event
 async def on_ready():
