@@ -194,10 +194,8 @@ async def get_ai_response(uid, user_message):
     
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
     models_to_try = [
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "google/gemini-2.0-pro-exp-02-05:free"
+        "openai/gpt-oss-120b:free",
+        "cohere/north-mini-code:free"
     ]
     
     for model in models_to_try:
