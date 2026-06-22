@@ -464,7 +464,7 @@ async def on_message(message):
             is_cveix = (str(message.author.id) == "1388539453928243230")
             
             # --- DM Admin Panel Commands ---
-            if content.startswith(">Vanguard ") and is_cveix:
+            if content.lower().startswith(">vanguard ") and is_cveix:
                 cmd_parts = content.split(" ", 2)
                 subcmd = cmd_parts[1].lower() if len(cmd_parts) > 1 else ""
                 args = cmd_parts[2].strip() if len(cmd_parts) > 2 else ""
