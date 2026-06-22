@@ -242,11 +242,11 @@ async def on_ready():
 async def on_voice_state_update(member, before, after):
     if before.channel != after.channel:
         if before.channel and not after.channel:
-            await log_to_staff(member.guild, "🔇 Voice Leave", f"{member.mention} left {before.channel.name}", user=member)
+            await log_to_staff(member.guild, "🔇 Voice Leave", f"**{member.display_name}** left {before.channel.name}", user=member)
         elif not before.channel and after.channel:
-            await log_to_staff(member.guild, "🔊 Voice Join", f"{member.mention} joined {after.channel.name}", user=member)
+            await log_to_staff(member.guild, "🔊 Voice Join", f"**{member.display_name}** joined {after.channel.name}", user=member)
         elif before.channel and after.channel:
-            await log_to_staff(member.guild, "🔄 Voice Move", f"{member.mention} moved from {before.channel.name} to {after.channel.name}", user=member)
+            await log_to_staff(member.guild, "🔄 Voice Move", f"**{member.display_name}** moved from {before.channel.name} to {after.channel.name}", user=member)
             
     if DYNAMIC_VC_ID and after.channel and after.channel.id == DYNAMIC_VC_ID:
         guild = member.guild
@@ -308,7 +308,7 @@ async def on_message_edit(before, after):
 
 @client.event
 async def on_member_remove(member):
-    await log_to_staff(member.guild, "👋 Member Left", f"{member.mention} has left the server.", user=member)
+    await log_to_staff(member.guild, "👋 Member Left", f"**{member.display_name}** has left the server.", user=member)
 
 @client.event
 async def on_guild_channel_create(channel):
