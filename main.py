@@ -448,11 +448,18 @@ async def on_message(message):
             return
 
     # === AI INTERACTION ===
-    if client.user.mentioned_in(message):
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    if is_dm or client.user.mentioned_in(message):
         content = message.content.replace(f'<@{client.user.id}>', '').strip()
-        has_chat_role = any("Vanguard Chat" in r.name or r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in message.author.roles)
+        
+        has_chat_role = False
+        if is_dm:
+            has_chat_role = True
+        else:
+            has_chat_role = any("Vanguard Chat" in r.name or r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in getattr(message.author, "roles", []))
+            
         if not has_chat_role:
-            await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me!")
+            await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me in the server!")
             return
         if content:
             lower_content = content.lower()
