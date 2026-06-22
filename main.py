@@ -452,15 +452,29 @@ async def on_message(message):
     if is_dm or client.user.mentioned_in(message):
         content = message.content.replace(f'<@{client.user.id}>', '').strip()
         
-        has_chat_role = False
         if is_dm:
-            has_chat_role = True
+            vanguard_guild = client.get_guild(1517486961592504320)
+            member = vanguard_guild.get_member(message.author.id) if vanguard_guild else None
+            is_owner = member and any("Owner" in r.name for r in member.roles)
+            
+            if content.startswith(">Vanguard access ") and is_owner:
+                target_id = content.replace(">Vanguard access ", "").strip()
+                if "dm_whitelist" not in DB_CACHE: DB_CACHE["dm_whitelist"] = []
+                if target_id not in DB_CACHE["dm_whitelist"]:
+                    DB_CACHE["dm_whitelist"].append(target_id)
+                await message.reply(f"✅ Granted DM access to user ID: `{target_id}`")
+                return
+                
+            has_chat_role = is_owner or (str(message.author.id) in DB_CACHE.get("dm_whitelist", []))
+            if not has_chat_role:
+                await message.reply("❌ You do not have permission to DM me. Ask Pratik for access.")
+                return
         else:
             has_chat_role = any("Vanguard Chat" in r.name or r.name in ["Owner", "Admin", "『 🛡️ 』ꜱ ᴛ ᴀ ꜰ ꜰ"] for r in getattr(message.author, "roles", []))
-            
-        if not has_chat_role:
-            await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me in the server!")
-            return
+            if not has_chat_role:
+                await message.reply("❌ You need the **🤖 Vanguard Chat** role to talk to me in the server!")
+                return
+                
         if content:
             lower_content = content.lower()
             if "generate image" in lower_content or "create image" in lower_content or "imagine" in lower_content:
